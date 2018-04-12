@@ -1,0 +1,81 @@
+<!-- Doughnuts
+Written in 2018 by Peter Doyle, Shikhin Sethi
+To the extent possible under law, the authors have dedicated all copyright and related and neighboring rights to this software to the public domain worldwide. This software is distributed without any warranty.
+You should have received a copy of the CC0 Public Domain Dedication along with this software. If not, see <http://creativecommons.org/publicdomain/zero/1.0/>. -->
+<!DOCTYPE html>    
+<head>
+    <meta charset="utf-8">
+    <title>Doughnuts</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0px;
+            border: 0;
+            display: block;
+        }
+    </style>
+</head>
+ 
+<body>
+    <canvas id='bg' style='position:absolute; left:0; top:0;'></canvas>
+    <canvas id='cvs' style='position:absolute; left:0; top:0;'>Oops, try something modern.</canvas>
+
+    <div align='center' style='position:fixed; left:0; bottom:0; width:100%; min-height:40px;'>
+        <span id='output' style='vertical-align: middle'>4</span>
+        <input type='range' style='vertical-align: middle' min='2' max='50' value='4' class='slider' id='sld'>
+        &nbsp;&nbsp;
+        <input type='checkbox' id='snap'>
+        <label for='snap'>Snap to grid?</label>
+        &nbsp;&nbsp;
+        <input type='checkbox' id='fill' checked>
+        <label for='fill'>Fill in?</label>
+        &nbsp;&nbsp;
+        <input type='checkbox' id='wing'>
+        <label for='wing'>Show wing?</label>
+    </div>
+    <script>
+        (function(){let cvs=document.getElementById('cvs'),ctx=cvs.getContext('2d');let bg=document.getElementById('bg'),bg_ctx=bg.getContext('2d');let sld=document.getElementById("sld"),snap=document.getElementById("snap"),fill=document.getElementById("fill"),output=document.getElementById("output"),wing=document.getElementById("wing");let width,height,points=[],angles=[];let scl,ird;let colors,light_colors,dark_colors;let dragging=!1,dp,dh={x:0,y:0};let dw=!1;let sct=4,pm=Math.PI/sct;let fp=[],lp=[];function cross(c,a,b){return((a.x-c.x)*(b.y-c.y)-(a.y-c.y)*(b.x-c.x))}
+sld.oninput=sld.onchange=function(){output.innerHTML=this.value;sct=this.value;pm=Math.PI/sct;rds()}
+snap.onchange=function(){if(snap.checked){for(let i in points){points[i]=sp(i)}
+ca();rds()}}
+wing.onchange=function(){dw=wing.checked;rds()}
+fill.onchange=function(){rds()}
+init();function init(){window.addEventListener('resize',resize,!1);cvs.addEventListener('mousedown',mdo,!1);resize()}
+function mdo(event){let bounding_rect=cvs.getBoundingClientRect();let mouse={x:(event.clientX-bounding_rect.left)*(width/bounding_rect.width),y:(event.clientY-bounding_rect.top)*(height/bounding_rect.height)};for(let i in points){let dx=mouse.x-points[i].x,dy=mouse.y-points[i].y;if(dx*dx+dy*dy<ird*ird){dragging=!0;dh={x:dx,y:dy};dp=i;break}}
+if(dragging){window.addEventListener("mousemove",mouse_move,!1);rds()}
+cvs.removeEventListener("mousedown",mdo,!1);window.addEventListener("mouseup",mup,!1);if(event.preventDefault){event.preventDefault()}else if(event.returnValue){event.returnValue=!1}
+return!1}
+function mup(event){cvs.addEventListener("mousedown",mdo,!1);window.removeEventListener("mouseup",mup,!1);if(dragging){dragging=!1;window.removeEventListener("mousemove",mouse_move,!1)}
+if(snap.checked){points[dp]=sp(dp)}
+ca();rds()}
+function mouse_move(event){let min={x:ird,y:ird};let max={x:width-ird,y:height-ird};let bounding_rect=cvs.getBoundingClientRect();let mouse={x:(event.clientX-bounding_rect.left)*(width/bounding_rect.width),y:(event.clientY-bounding_rect.top)*(height/bounding_rect.height)};let pos={x:mouse.x-dh.x,y:mouse.y-dh.y};pos.x=(pos.x<min.x)?min.x:((pos.x>max.x)?max.x:pos.x);pos.y=(pos.y<min.y)?min.y:((pos.y>max.y)?max.y:pos.y);points[dp]=pos;ca();rds();if(snap.checked){ctx.beginPath();ctx.strokeStyle=ctx.fillStyle=light_colors[dp];let point=sp(dp);ctx.arc(point.x,point.y,ird,0,2*Math.PI,!1);ctx.fill()}}
+function third_point(A,a,B,b){let sub={x:B.x-A.x,y:B.y-A.y};let AB=Math.sqrt(sub.x*sub.x+sub.y*sub.y);let c=Math.PI-a-b;let AC=AB*Math.sin(b)/Math.sin(c);let exp_1=A.x*sub.x+A.y*sub.y+AC*AB*Math.cos(a);let exp_2=B.y*sub.x-B.x*sub.y+AC*AB*Math.sin(a);return{x:(1/(AB*AB))*(sub.x*exp_1-sub.y*exp_2),y:(1/(AB*AB))*(sub.y*exp_1+sub.x*exp_2)}}
+function draw_wing(wno){let left=points[(wno+2)%3],left_angle=angles[(wno+2)%3]/sct;ctx.beginPath();ctx.strokeStyle='black';ctx.lineWidth=(!wno&&dw)*0.75+0.25;for(let i=0;i<sct-1;i++){let next=third_point(left,left_angle,points[wno],angles[wno]/sct);let neighborly_darken=dw&&((!i&&!((wno+2)%3))||(i==sct-2&&!((wno+1)%3)));if(fill.checked||(!wno&&dw)||neighborly_darken){if(neighborly_darken){ctx.stroke();ctx.lineWidth=1;ctx.beginPath()}
+ctx.moveTo(next.x,next.y);ctx.lineTo(points[wno].x,points[wno].y);if(neighborly_darken){ctx.stroke();ctx.lineWidth=(!wno&&dw)*0.75+0.25;ctx.beginPath()}}
+if(i>0){if (!dw&&fill.checked&&(i==1||i==sct-2)){ctx.stroke();ctx.strokeStyle='red';ctx.lineWidth=0.75;ctx.beginPath()}
+ctx.moveTo(left.x,left.y);ctx.lineTo(next.x,next.y);ctx.stroke();ctx.strokeStyle='black';ctx.lineWidth=(!wno&&dw)*0.75+0.25;ctx.beginPath()}
+if((sct>2&&i==1)||sct==2){fp[wno]=next}
+if(i==sct-2){lp[wno]=left}
+left_angle+=pm;left=next}
+ctx.stroke()}
+function sp(idx){return{x:Math.floor((points[idx].x/scl)+0.5)*scl,y:Math.floor((points[idx].y/scl)+0.5)*scl}}
+function orient_points(){if(cross(points[0],points[1],points[2])<0){let tmp=points[1];points[1]=points[2];points[2]=tmp;dp=[0,2,1][dp];colors=[colors[0],colors[2],colors[1]];light_colors=[light_colors[0],light_colors[2],light_colors[1]];dark_colors=[dark_colors[0],dark_colors[2],dark_colors[1]]}}
+function draw_triangle(){orient_points();ctx.lineWidth=0.50;for(let i in points){ctx.beginPath();ctx.strokeStyle=ctx.fillStyle=(dragging&&i==dp)?dark_colors[i]:colors[i];ctx.arc(points[i].x,points[i].y,ird,0,2*Math.PI,!1);ctx.fill()}
+ctx.beginPath();ctx.strokeStyle='black';ctx.lineWidth=0.25;ctx.moveTo(points[0].x,points[0].y);ctx.lineTo(points[1].x,points[1].y);ctx.lineTo(points[2].x,points[2].y);ctx.closePath();ctx.stroke()}
+function ca(){let dist_10={x:points[1].x-points[0].x,y:points[1].y-points[0].y},dist_20={x:points[2].x-points[0].x,y:points[2].y-points[0].y},dist_21={x:points[2].x-points[1].x,y:points[2].y-points[1].y};let AB=Math.sqrt(dist_10.x*dist_10.x+dist_10.y*dist_10.y);let AC=Math.sqrt(dist_20.x*dist_20.x+dist_20.y*dist_20.y);let BC=Math.sqrt(dist_21.x*dist_21.x+dist_21.y*dist_21.y);angles[0]=Math.acos((dist_10.x*dist_20.x+dist_10.y*dist_20.y)/(AB*AC));angles[1]=Math.acos((-dist_10.x*dist_21.x-dist_10.y*dist_21.y)/(AB*BC));angles[2]=Math.acos((dist_21.x*dist_20.x+dist_21.y*dist_20.y)/(AC*BC))}
+function rds(){ctx.clearRect(0,0,cvs.width,cvs.height);draw_triangle();draw_wing(0);draw_wing(1);draw_wing(2);if(!dw&&fill.checked){ctx.beginPath();ctx.lineWidth=0.75;ctx.strokeStyle='red';for(let i=0;i<3;i++){ctx.moveTo(lp[i].x,lp[i].y);ctx.lineTo(fp[(i+1)%3].x,fp[(i+1)%3].y)}
+ctx.stroke()}}
+function rd_bg(){bg_ctx.clearRect(0,0,bg.width,bg.height);bg_ctx.beginPath();bg_ctx.lineWidth=0.50;bg_ctx.strokeStyle='lightgrey';for(let i=scl;i<height;i+=scl){bg_ctx.moveTo(0,i);bg_ctx.lineTo(width,i)}
+for(let i=scl;i<width;i+=scl){bg_ctx.moveTo(i,0);bg_ctx.lineTo(i,height)}
+bg_ctx.stroke()}
+function rd(){rd_bg();rds()}
+function rst_cds(){colors=['rgba(255,0,0,0.5)','rgba(0,0,255,0.5)','rgba(0,255,0,0.5)'];light_colors=['rgba(255,99,71,0.5)','rgba(173,216,230,0.5)','rgba(144,238,144,0.5)'];dark_colors=['rgba(139,0,0,0.5)','rgba(0,0,139,0.5)','rgba(0,139,0,0.5)'];let padding=Math.min(height*0.2,width*0.2),h=Math.min(height-2*padding,(width-2*padding)*Math.sqrt(3)/2),a=h/Math.sqrt(3);points[2]={x:width/2,y:padding};points[1]={x:width/2-a,y:padding+h};points[0]={x:width/2+a,y:padding+h};angles[0]=angles[1]=angles[2]=Math.PI/3}
+function resize(){let old_height=height,old_width=width;bg.width=cvs.width=width=window.devicePixelRatio*Math.max(window.innerWidth,250);bg.height=cvs.height=height=window.devicePixelRatio*Math.max(window.innerHeight,250);bg.style.width=cvs.style.width=Math.max(window.innerWidth,250)+"px";bg.style.height=cvs.style.height=Math.max(window.innerHeight,250)+"px";ctx.scale(window.devicePixelRatio,window.devicePixelRatio);bg_ctx.scale(window.devicePixelRatio,window.devicePixelRatio);scl=Math.min(Math.max(0.05*height,0.05*width,15),25);ird=scl/2;width/=window.devicePixelRatio,height/=window.devicePixelRatio;if(!points.length){rst_cds()}else{for(idx in points){points[idx].y*=height/old_height;points[idx].x*=width/old_width;if(snap.checked){points[idx]=sp(idx)}}
+ca()}
+rd()}})();
+    </script>
+    
+</body>
+ 
+</html>

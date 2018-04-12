@@ -1,0 +1,376 @@
+<!-- Doughnuts
+Written in 2018 by Peter Doyle, Shikhin Sethi
+To the extent possible under law, the authors have dedicated all copyright and related and neighboring rights to this software to the public domain worldwide. This software is distributed without any warranty.
+You should have received a copy of the CC0 Public Domain Dedication along with this software. If not, see <http://creativecommons.org/publicdomain/zero/1.0/>. -->
+<!DOCTYPE html>    
+<head>
+    <meta charset="utf-8">
+    <title>Doughnuts</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0px;
+            border: 0;
+            display: block;
+        }
+    </style>
+</head>
+ 
+<body>
+    <canvas id='background' style='position:absolute; left:0; top:0;'></canvas>
+    <canvas id='canvas' style='position:absolute; left:0; top:0;'>Oops, try something modern.</canvas>
+
+    <div align='center' style='position:fixed; left:0; bottom:0; width:100%; min-height:40px;'>
+        <span id='output' style='vertical-align: middle'>4</span>
+        <input type='range' style='vertical-align: middle' min='2' max='50' value='4' class='slider' id='slider'>
+        &nbsp;&nbsp;
+        <input type='checkbox' id='snap'>
+        <label for='snap'>Snap to grid?</label>
+        &nbsp;&nbsp;
+        <input type='checkbox' id='fill' checked>
+        <label for='fill'>Fill in?</label>
+        &nbsp;&nbsp;
+        <input type='checkbox' id='wing'>
+        <label for='wing'>Show wing?</label>
+    </div>
+    <script>
+        (function() {
+            let canvas = document.getElementById('canvas'), context = canvas.getContext('2d');
+            let background = document.getElementById('background'), bg_context = background.getContext('2d');
+            let slider = document.getElementById("slider"),
+                snap = document.getElementById("snap"),
+                fill = document.getElementById("fill"),
+                output = document.getElementById("output"),
+                wing = document.getElementById("wing");
+
+            let width, height, points = [], angles = [];
+            let scale, indic_radius;
+
+            let colors, light_colors, dark_colors;
+
+            let dragging = false, drag_point, drag_hold = {x: 0, y: 0};
+            let darken_wing = false;
+
+            let section = 4, prime = Math.PI / section;
+
+            let first_point = [], last_point = [];
+
+            function cross(c, a, b) {
+                return ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x));
+            }
+
+            slider.oninput = slider.onchange = function() {
+                output.innerHTML = this.value;
+                section = this.value; prime = Math.PI / section;
+                redraw_screen();
+            }
+
+            snap.onchange = function() {
+                if (snap.checked) {
+                    for (let i in points) {
+                        points[i] = snap_point(i);
+                    }
+                    compute_angles();
+                    redraw_screen();
+                }
+            }
+
+            wing.onchange = function() {
+                darken_wing = wing.checked;
+                redraw_screen();
+            }
+
+            fill.onchange = function() {
+                redraw_screen();
+            }
+
+            init();
+            function init() {
+                window.addEventListener('resize', resize, false);
+                canvas.addEventListener('mousedown', mouse_down, false);
+                resize();
+            }
+
+            function mouse_down(event) {
+                let bounding_rect = canvas.getBoundingClientRect();
+                let mouse = {x: (event.clientX - bounding_rect.left) * (width / bounding_rect.width),
+                             y: (event.clientY - bounding_rect.top) * (height / bounding_rect.height)};
+                        
+                for (let i in points) {
+                    // hit the indicator
+                    let dx = mouse.x - points[i].x, dy = mouse.y - points[i].y;
+                    if (dx * dx + dy * dy < indic_radius * indic_radius) {
+                        dragging = true;
+                        drag_hold = {x: dx, y: dy};
+                        drag_point = i;
+                        break;
+                    }
+                }
+                
+                if (dragging) {
+                    window.addEventListener("mousemove", mouse_move, false);
+                    redraw_screen();
+                }
+
+                canvas.removeEventListener("mousedown", mouse_down, false);
+                window.addEventListener("mouseup", mouse_up, false);
+                
+                if (event.preventDefault) {
+                    event.preventDefault();
+                } else if (event.returnValue) {
+                    event.returnValue = false;
+                }
+
+                return false;
+            }
+
+            function mouse_up(event) {
+                canvas.addEventListener("mousedown", mouse_down, false);
+                window.removeEventListener("mouseup", mouse_up, false);
+                if (dragging) {
+                    dragging = false;
+                    window.removeEventListener("mousemove", mouse_move, false);
+                }
+
+                if (snap.checked) {
+                    points[drag_point] = snap_point(drag_point);
+                }
+                compute_angles();
+                redraw_screen();
+            }
+
+            function mouse_move(event) {
+                let min = {x: indic_radius, y: indic_radius};
+                let max = {x: width - indic_radius, y: height - indic_radius};
+
+                let bounding_rect = canvas.getBoundingClientRect();
+                let mouse = {x: (event.clientX - bounding_rect.left) * (width / bounding_rect.width),
+                             y: (event.clientY - bounding_rect.top) * (height / bounding_rect.height)};
+
+                let pos = {x: mouse.x - drag_hold.x, y: mouse.y - drag_hold.y};
+                pos.x = (pos.x < min.x) ? min.x : ((pos.x > max.x) ? max.x : pos.x);
+                pos.y = (pos.y < min.y) ? min.y : ((pos.y > max.y) ? max.y : pos.y);
+                
+                points[drag_point] = pos;
+
+                compute_angles();
+                redraw_screen();
+                if (snap.checked) {
+                    context.beginPath();
+                    context.strokeStyle = context.fillStyle = light_colors[drag_point];
+                    let point = snap_point(drag_point);
+                    context.arc(point.x, point.y, indic_radius, 0, 2 * Math.PI, false);
+                    context.fill();
+                }
+            }
+
+            function third_point(A, a, B, b) {
+                let sub = {x: B.x - A.x, y: B.y - A.y}; let AB = Math.sqrt(sub.x * sub.x + sub.y * sub.y);
+                let c = Math.PI - a - b;
+                let AC = AB * Math.sin(b) / Math.sin(c);
+                
+                let exp_1 = A.x * sub.x + A.y * sub.y + AC * AB * Math.cos(a);
+                let exp_2 = B.y * sub.x - B.x * sub.y + AC * AB * Math.sin(a);
+                
+                return {x: (1 / (AB * AB)) * (sub.x * exp_1 - sub.y * exp_2), y: (1 / (AB * AB)) * (sub.y * exp_1 + sub.x * exp_2)};
+            }
+
+            function draw_wing(wing_no) {
+                let left = points[(wing_no + 2) % 3], left_angle = angles[(wing_no + 2) % 3] / section;
+
+                context.beginPath();
+                context.strokeStyle = 'black';
+                context.lineWidth = (!wing_no && darken_wing) * 0.75 + 0.25;
+                for (let i = 0; i < section - 1; i++) {
+                    let next = third_point(left, left_angle, points[wing_no], angles[wing_no] / section);
+
+                    let neighborly_darken = darken_wing && ((!i && !((wing_no + 2) % 3)) || 
+                            (i == section - 2 && !((wing_no + 1) % 3)));
+                    if (fill.checked || (!wing_no && darken_wing) || neighborly_darken) {
+                        if (neighborly_darken) {
+                            context.stroke();
+                            context.lineWidth = 1;
+                            context.beginPath();
+                        }
+                        context.moveTo(next.x, next.y);
+                        context.lineTo(points[wing_no].x, points[wing_no].y);
+                        if (neighborly_darken) {
+                            context.stroke();
+                            context.lineWidth = (!wing_no && darken_wing) * 0.75 + 0.25;
+                            context.beginPath();
+                        }
+                    }
+
+                    if (i > 0) {
+                        if (!darken_wing && fill.checked && (i == 1 || i == section - 2)) {
+                            context.stroke();
+                            context.strokeStyle = 'red';
+                            context.lineWidth = 0.75;
+                            context.beginPath();
+                        }
+                        context.moveTo(left.x, left.y);
+                        context.lineTo(next.x, next.y);
+                        context.stroke();
+                        context.strokeStyle = 'black';
+                        context.lineWidth = (!wing_no && darken_wing) * 0.75 + 0.25;
+                        context.beginPath();
+                    }
+
+                    if ((section > 2 && i == 1) || section == 2) {
+                        first_point[wing_no] = next;
+                    }
+
+                    if (i == section - 2) {
+                        last_point[wing_no] = left;
+                    }
+
+                    left_angle += prime; left = next;
+                }
+
+                context.stroke();
+            }
+
+            function snap_point(idx) {
+                return {x: Math.floor((points[idx].x / scale) + 0.5) * scale,
+                        y: Math.floor((points[idx].y / scale) + 0.5) * scale};
+            }
+
+            function orient_points() {
+                if (cross(points[0], points[1], points[2]) < 0) {
+                    let tmp = points[1]; points[1] = points[2]; points[2] = tmp;
+
+                    drag_point = [0, 2, 1][drag_point];
+                    colors = [colors[0], colors[2], colors[1]];
+                    light_colors = [light_colors[0], light_colors[2], light_colors[1]];
+                    dark_colors = [dark_colors[0], dark_colors[2], dark_colors[1]];
+                }
+            }
+
+            function draw_triangle() {
+                orient_points();
+
+                context.lineWidth = 0.50;
+                for (let i in points) {
+                    context.beginPath();
+                    context.strokeStyle = context.fillStyle = (dragging && i == drag_point) ? dark_colors[i] : colors[i];
+                    context.arc(points[i].x, points[i].y, indic_radius, 0, 2 * Math.PI, false);
+                    context.fill();
+                }
+
+                context.beginPath();
+                context.strokeStyle = 'black';
+                context.lineWidth = 0.25;
+                context.moveTo(points[0].x, points[0].y);
+                context.lineTo(points[1].x, points[1].y);
+                context.lineTo(points[2].x, points[2].y);
+                context.closePath();
+                context.stroke();
+            }
+
+            function compute_angles() {
+                let dist_10 = {x: points[1].x - points[0].x, y: points[1].y - points[0].y},
+                    dist_20 = {x: points[2].x - points[0].x, y: points[2].y - points[0].y},
+                    dist_21 = {x: points[2].x - points[1].x, y: points[2].y - points[1].y};
+                let AB = Math.sqrt(dist_10.x * dist_10.x + dist_10.y * dist_10.y);
+                let AC = Math.sqrt(dist_20.x * dist_20.x + dist_20.y * dist_20.y);
+                let BC = Math.sqrt(dist_21.x * dist_21.x + dist_21.y * dist_21.y);
+                angles[0] = Math.acos((dist_10.x * dist_20.x + dist_10.y * dist_20.y) / (AB * AC));
+                angles[1] = Math.acos((- dist_10.x * dist_21.x - dist_10.y * dist_21.y) / (AB * BC));
+                angles[2] = Math.acos((dist_21.x * dist_20.x + dist_21.y * dist_20.y) / (AC * BC));
+            }
+
+            function redraw_screen() {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+
+                draw_triangle();
+                draw_wing(0); draw_wing(1); draw_wing(2);
+
+                if (!darken_wing && fill.checked) {
+                    context.beginPath();
+                    context.lineWidth = 0.75;
+                    context.strokeStyle = 'red';
+                    for (let i = 0; i < 3; i++) {
+                        context.moveTo(last_point[i].x, last_point[i].y);
+                        context.lineTo(first_point[(i + 1) % 3].x, first_point[(i + 1) % 3].y);
+                    }
+                    context.stroke();
+                }
+            }
+
+            function redraw_background() {
+                bg_context.clearRect(0, 0, background.width, background.height);
+
+                bg_context.beginPath();
+                bg_context.lineWidth = 0.50;
+                bg_context.strokeStyle = 'lightgrey';
+                for (let i = scale; i < height; i += scale) {
+                    bg_context.moveTo(0, i);
+                    bg_context.lineTo(width, i);
+                }
+                for (let i = scale; i < width; i += scale) {
+                    bg_context.moveTo(i, 0);
+                    bg_context.lineTo(i, height);
+                }
+                bg_context.stroke();
+            }
+
+            function redraw() {
+                redraw_background();
+                redraw_screen();
+            }
+
+            function reset_coords() {
+                colors = ['rgba(255,0,0,0.5)', 'rgba(0,0,255,0.5)', 'rgba(0,255,0,0.5)'];
+                // tomato, lightblue, lightgreen
+                light_colors = ['rgba(255,99,71,0.5)', 'rgba(173,216,230,0.5)', 'rgba(144,238,144,0.5)'];
+                // darkred, darkblue, darkgreen
+                dark_colors = ['rgba(139,0,0,0.5)', 'rgba(0,0,139,0.5)', 'rgba(0,139,0,0.5)'];
+
+                let padding = Math.min(height * 0.2, width * 0.2),
+                    h = Math.min(height - 2 * padding, (width - 2 * padding) * Math.sqrt(3) / 2),
+                    a = h / Math.sqrt(3);
+
+                points[2] = {x: width / 2, y: padding};
+                points[1] = {x: width / 2 - a, y: padding + h};
+                points[0] = {x: width / 2 + a, y: padding + h};
+                angles[0] = angles[1] = angles[2] = Math.PI / 3;
+            }   
+
+            function resize() {
+                let old_height = height, old_width = width;
+                background.width = canvas.width = width = window.devicePixelRatio * Math.max(window.innerWidth, 250);
+                background.height = canvas.height = height = window.devicePixelRatio * Math.max(window.innerHeight, 250);
+                background.style.width = canvas.style.width = Math.max(window.innerWidth, 250) + "px";
+                background.style.height = canvas.style.height = Math.max(window.innerHeight, 250) + "px";
+
+                context.scale(window.devicePixelRatio, window.devicePixelRatio);
+                bg_context.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+                scale = Math.min(Math.max(0.05 * height, 0.05 * width, 15), 25);
+                indic_radius = scale / 2;
+
+                width /= window.devicePixelRatio, height /= window.devicePixelRatio;
+
+                if (!points.length) {
+                    reset_coords();
+                } else {
+                    for (idx in points) {
+                        points[idx].y *= height / old_height;
+                        points[idx].x *= width / old_width;
+                        if (snap.checked) {
+                            points[idx] = snap_point(idx);
+                        }
+                    }
+                    compute_angles();
+                }
+
+                redraw();
+            }
+        
+        })();
+    </script>
+    
+</body>
+ 
+</html>
